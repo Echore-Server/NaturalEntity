@@ -6,6 +6,6 @@ namespace Echore\NaturalEntity;
 
 use pocketmine\plugin\PluginBase;
 
-class Main extends PluginBase{
+class Main extends PluginBase {
 
 }
