@@ -4,4 +4,7 @@ version: 0.0.1
 main: Echore\NaturalEntity\Main
 api: 5.3.2
 src-namespace-prefix: Echore\NaturalEntity
+
+depend:
+  - WorldPathMap
 ...
