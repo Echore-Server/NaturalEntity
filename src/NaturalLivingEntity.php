@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Echore\NaturalEntity;
 
 use Echore\NaturalEntity\option\MovementOptions;
@@ -20,6 +22,7 @@ use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityDamageEvent;
 use pocketmine\math\Vector2;
 use pocketmine\math\Vector3;
+use pocketmine\math\VoxelRayTrace;
 use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\player\Player;
 use pocketmine\world\Position;
@@ -36,16 +39,34 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	protected float $attackRange;
 
+	private int $targetBlockSolidTriggerTick = 0;
+
 	private MovementOptions $movementOptions;
 
 	private SelectTargetOptions $selectTargetOptions;
 
 	private int $selectTargetCycleTick;
 
-	private ?EntityDamageByEntityEvent $lastDamageCauseByPlayer;
+	private ?EntityDamageByEntityEvent $lastDamageCauseByPlayer = null;
+
+	private ?int $lastDamageCauseByPlayerTick = null;
+
+	private ?IPathProvider $pathProvider = null;
 
 	public function getMovementOptions(): MovementOptions {
 		return $this->movementOptions;
+	}
+
+	public function getPathProvider(): ?IPathProvider {
+		return $this->pathProvider;
+	}
+
+	public function setPathProvider(?IPathProvider $pathProvider): void {
+		$this->pathProvider = $pathProvider;
+	}
+
+	public function getLastDamageCauseByPlayerTick(): ?int {
+		return $this->lastDamageCauseByPlayerTick;
 	}
 
 	/**
@@ -59,8 +80,41 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		return $this->targetSelector;
 	}
 
-	public function walkForward(bool $sprintSpeed = true): void {
-		$this->walk($this->getDirection2D($this->getLocation()->getYaw()), $sprintSpeed);
+	public function walkTo(Vector3 $to, bool $sprintSpeed): ?Vector2 {
+		if (!$this->movementOptions->isWalkEnabled()) {
+			return null;
+		}
+
+		if (!$this->movementOptions->isWalkInAir() && !$this->isOnGround()) {
+			return null;
+		}
+
+		$position = $this->getPosition()->add(0, 0.5, 0);
+
+		if ($this->pathProvider?->isReachable($position, $to) ?? true) {
+			$horizontal = VectorUtil::getDirectionHorizontal(VectorUtil::getAngle($position, $to)->x);
+		} else {
+			$horizontal = null;
+			foreach (array_merge([$position], $position->sidesArray()) as $target) {
+				foreach (array_merge([$to], $to->sidesArray()) as $targetTo) {
+					if ($this->pathProvider->isAvailable($target, $targetTo)) {
+						$next = $this->pathProvider->getNextPosition($target->floor(), $targetTo->floor());
+
+						$horizontal = VectorUtil::getDirectionHorizontal(VectorUtil::getAngle($position, $next->add(0.5, 0.0, 0.5))->x);
+						break 2;
+					}
+				}
+			}
+
+			if (is_null($horizontal)) {
+				return null;
+			}
+		}
+
+
+		$this->walk($v = new Vector2($horizontal->x, $horizontal->z), $sprintSpeed);
+
+		return $v;
 	}
 
 	public function walk(Vector2 $direction, bool $sprintSpeed): void {
@@ -108,6 +162,10 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			Cobweb::class => 0.1,
 			default => 1.0
 		};
+	}
+
+	public function walkForward(bool $sprintSpeed = true): void {
+		$this->walk($this->getDirection2D($this->getLocation()->getYaw()), $sprintSpeed);
 	}
 
 	private function getDirection2D(float $yaw): Vector2 {
@@ -201,6 +259,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 			if ($damager instanceof Player || $damager->getOwningEntity() instanceof Player) {
 				$this->lastDamageCauseByPlayer = $source;
+				$this->lastDamageCauseByPlayerTick = $this->getWorld()->getServer()->getTick();
 			}
 
 			if ($damager !== $this->getInstanceTarget()) {
@@ -352,5 +411,70 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		#heavy
 
 		return $this->getWorld()->getCollidingEntities($this->boundingBox->offsetCopy($diffX, $diffY, $diffZ), $this);
+	}
+
+	private function walkToPri(Vector3 $to, bool $sprintSpeed): ?Vector2 {
+		if (!$this->movementOptions->isWalkEnabled()) {
+			return null;
+		}
+
+		if (!$this->movementOptions->isWalkInAir() && !$this->isOnGround()) {
+			return null;
+		}
+
+		$position = $this->getPosition()->add(0, 0.5, 0);
+
+		$danger = false;
+
+		if ($this->getWorld()->getServer()->getTick() - $this->targetBlockSolidTriggerTick < 50) {
+			$danger = true;
+		}
+
+		$horizontal = VectorUtil::getDirectionHorizontal(VectorUtil::getAngle($position, $to)->x);
+
+		if (!$danger) {
+			$block = $this->getWorld()->getBlock($this->getPosition()->subtract(0, 0.5, 0)->addVector($horizontal->multiply(2.0)));
+
+			if (!$block->isSolid()) {
+				$this->targetBlockSolidTriggerTick = $this->getWorld()->getServer()->getTick();
+				$danger = true;
+			}
+		}
+
+
+		if (!$danger) {
+			foreach (VoxelRayTrace::betweenPoints($this->getPosition(), $to) as $vec) {
+				$targetEyeBlock = $this->getWorld()->getBlock($vec->add(0, 1, 0));
+
+				if ($targetEyeBlock->isSolid()) {
+					$this->targetBlockSolidTriggerTick = $this->getWorld()->getServer()->getTick();
+					$danger = true;
+					break;
+				}
+			}
+		}
+
+		if ($danger) {
+			$horizontal = null;
+			foreach (array_merge([$position], $position->sidesArray()) as $target) {
+				foreach (array_merge([$to], $to->sidesArray()) as $targetTo) {
+					if ($this->pathProvider?->isAvailable($target, $targetTo)) {
+						$next = $this->pathProvider->getNextPosition($target->floor(), $targetTo->floor());
+
+						$horizontal = VectorUtil::getDirectionHorizontal(VectorUtil::getAngle($position, $next->add(0.5, 0.0, 0.5))->x);
+						break 2;
+					}
+				}
+			}
+		}
+
+
+		if (is_null($horizontal)) {
+			return null;
+		}
+
+		$this->walk($v = new Vector2($horizontal->x, $horizontal->z), $sprintSpeed);
+
+		return $v;
 	}
 }
