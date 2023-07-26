@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Echore\NaturalEntity;
 
 use Echore\NaturalEntity\option\MovementOptions;
@@ -7,6 +9,7 @@ use Echore\NaturalEntity\option\SelectTargetOptions;
 use pocketmine\entity\Entity;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\math\Vector2;
+use pocketmine\math\Vector3;
 
 interface INaturalEntity {
 
@@ -32,6 +35,8 @@ interface INaturalEntity {
 
 	public function removeInstanceTarget(): void;
 
+	public function getLastDamageCauseByPlayerTick(): ?int;
+
 	public function getLastDamageCauseByPlayer(): ?EntityDamageByEntityEvent;
 
 	public function getInteresting(): int;
@@ -53,4 +58,10 @@ interface INaturalEntity {
 	public function getAttackRange(): float;
 
 	public function setAttackRange(float $range): void;
+
+	public function getPathProvider(): ?IPathProvider;
+
+	public function setPathProvider(?IPathProvider $pathProvider): void;
+
+	public function walkTo(Vector3 $to, bool $sprintSpeed): ?Vector2;
 }
