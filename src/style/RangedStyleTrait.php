@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Echore\NaturalEntity\style;
 
 use Echore\NaturalEntity\INaturalEntity;
