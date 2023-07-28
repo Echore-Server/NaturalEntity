@@ -53,6 +53,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	private ?IPathProvider $pathProvider = null;
 
+	private ?int $lastDamageCauseTick = null;
+
 	public function getMovementOptions(): MovementOptions {
 		return $this->movementOptions;
 	}
@@ -296,8 +298,35 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->setTargetEntity($entity);
 	}
 
+	/**
+	 * @param EntityDamageEvent|null $type
+	 */
+	public function setLastDamageCause(?EntityDamageEvent $type): void {
+		$this->lastDamageCause = $type;
+
+		if (is_null($type)) {
+			$this->lastDamageCauseTick = null;
+		} else {
+			$this->lastDamageCauseTick = $this->getWorld()->getServer()->getTick();
+		}
+	}
+
+	public function getLastDamageCauseTick(): ?int {
+		return $this->lastDamageCauseTick;
+	}
+
 	public function getLastDamageCauseByPlayer(): ?EntityDamageByEntityEvent {
 		return $this->lastDamageCauseByPlayer;
+	}
+
+	public function setLastDamageCauseByPlayer(?EntityDamageByEntityEvent $event, ?int $tick = null): void {
+		if (!is_null($event)) {
+			$this->lastDamageCauseByPlayerTick = $tick;
+			$this->lastDamageCauseByPlayer = $event;
+		} else {
+			$this->lastDamageCauseByPlayer = null;
+			$this->lastDamageCauseByPlayerTick = null;
+		}
 	}
 
 	public function getInteresting(): int {

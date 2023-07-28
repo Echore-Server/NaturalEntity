@@ -35,9 +35,13 @@ interface INaturalEntity {
 
 	public function removeInstanceTarget(): void;
 
+	public function getLastDamageCauseTick(): ?int;
+
 	public function getLastDamageCauseByPlayerTick(): ?int;
 
 	public function getLastDamageCauseByPlayer(): ?EntityDamageByEntityEvent;
+
+	public function setLastDamageCauseByPlayer(?EntityDamageByEntityEvent $event, ?int $tick = null): void;
 
 	public function getInteresting(): int;
 
