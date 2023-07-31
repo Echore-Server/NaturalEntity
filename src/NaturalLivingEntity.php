@@ -22,7 +22,6 @@ use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityDamageEvent;
 use pocketmine\math\Vector2;
 use pocketmine\math\Vector3;
-use pocketmine\math\VoxelRayTrace;
 use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\player\Player;
 use pocketmine\world\Position;
@@ -411,7 +410,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			foreach ($collidingEntities as $entity) {
 				$deltaX = $this->location->x - $entity->location->x;
 				$deltaZ = $this->location->z - $entity->location->z;
-				$f = 1 / max(sqrt(pow($deltaX, 2) + pow($deltaZ, 2)), 0.01);
+				$f = 1 / max(sqrt($deltaX ** 2 + $deltaZ ** 2), 0.01);
 				$kb = new Vector3(
 					$deltaX * ($f * 0.2),
 					0,
@@ -440,70 +439,5 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		#heavy
 
 		return $this->getWorld()->getCollidingEntities($this->boundingBox->offsetCopy($diffX, $diffY, $diffZ), $this);
-	}
-
-	private function walkToPri(Vector3 $to, bool $sprintSpeed): ?Vector2 {
-		if (!$this->movementOptions->isWalkEnabled()) {
-			return null;
-		}
-
-		if (!$this->movementOptions->isWalkInAir() && !$this->isOnGround()) {
-			return null;
-		}
-
-		$position = $this->getPosition()->add(0, 0.5, 0);
-
-		$danger = false;
-
-		if ($this->getWorld()->getServer()->getTick() - $this->targetBlockSolidTriggerTick < 50) {
-			$danger = true;
-		}
-
-		$horizontal = VectorUtil::getDirectionHorizontal(VectorUtil::getAngle($position, $to)->x);
-
-		if (!$danger) {
-			$block = $this->getWorld()->getBlock($this->getPosition()->subtract(0, 0.5, 0)->addVector($horizontal->multiply(2.0)));
-
-			if (!$block->isSolid()) {
-				$this->targetBlockSolidTriggerTick = $this->getWorld()->getServer()->getTick();
-				$danger = true;
-			}
-		}
-
-
-		if (!$danger) {
-			foreach (VoxelRayTrace::betweenPoints($this->getPosition(), $to) as $vec) {
-				$targetEyeBlock = $this->getWorld()->getBlock($vec->add(0, 1, 0));
-
-				if ($targetEyeBlock->isSolid()) {
-					$this->targetBlockSolidTriggerTick = $this->getWorld()->getServer()->getTick();
-					$danger = true;
-					break;
-				}
-			}
-		}
-
-		if ($danger) {
-			$horizontal = null;
-			foreach (array_merge([$position], $position->sidesArray()) as $target) {
-				foreach (array_merge([$to], $to->sidesArray()) as $targetTo) {
-					if ($this->pathProvider?->isAvailable($target, $targetTo)) {
-						$next = $this->pathProvider->getNextPosition($target->floor(), $targetTo->floor());
-
-						$horizontal = VectorUtil::getDirectionHorizontal(VectorUtil::getAngle($position, $next->add(0.5, 0.0, 0.5))->x);
-						break 2;
-					}
-				}
-			}
-		}
-
-
-		if (is_null($horizontal)) {
-			return null;
-		}
-
-		$this->walk($v = new Vector2($horizontal->x, $horizontal->z), $sprintSpeed);
-
-		return $v;
 	}
 }
