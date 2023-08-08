@@ -403,6 +403,9 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	}
 
 	protected function processEntityRepulsion(): void {
+		if (!$this->movementOptions->isRepulsionEnabled()) {
+			return;
+		}
 		$nextPosition = clone $this->getPosition();
 		$collidingEntities = $this->getCollidingEntitiesWithDiff($nextPosition);
 		if (count($collidingEntities) > 0) {

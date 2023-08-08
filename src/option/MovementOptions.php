@@ -12,10 +12,27 @@ class MovementOptions {
 
 	private bool $walkInAir;
 
+	private bool $repulsionEnabled;
+
 	public function __construct() {
 		$this->ignoreBlockModifiers = false;
 		$this->walkEnabled = true;
 		$this->walkInAir = false;
+		$this->repulsionEnabled = true;
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function isRepulsionEnabled(): bool {
+		return $this->repulsionEnabled;
+	}
+
+	/**
+	 * @param bool $repulsionEnabled
+	 */
+	public function setRepulsionEnabled(bool $repulsionEnabled): void {
+		$this->repulsionEnabled = $repulsionEnabled;
 	}
 
 	/**
