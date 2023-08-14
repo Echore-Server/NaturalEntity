@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Echore\NaturalEntity;
 
+use Echore\NaturalEntity\option\FightOptions;
 use Echore\NaturalEntity\option\MovementOptions;
 use Echore\NaturalEntity\option\SelectTargetOptions;
 use Echore\NaturalEntity\style\IFightingEntity;
 use Echore\NaturalEntity\utils\VectorUtil;
-use Lyrica0954\SmartEntity\SmartEntity;
 use OutOfRangeException;
 use pocketmine\block\Block;
 use pocketmine\block\Cobweb;
@@ -38,7 +38,9 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	protected float $attackRange;
 
-	private int $targetBlockSolidTriggerTick = 0;
+	protected bool $immobile = false;
+
+	private FightOptions $fightOptions;
 
 	private MovementOptions $movementOptions;
 
@@ -127,6 +129,10 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			return;
 		}
 
+		if ($this->isImmobile()) {
+			return;
+		}
+
 		$speed = $this->getMovementSpeed();
 
 		if ($sprintSpeed) {
@@ -154,6 +160,14 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		if ($vector->z > 0 && $this->motion->z < $vector->z) {
 			$this->addMotion(0, 0, $vector->z);
 		}
+	}
+
+	public function isImmobile(): bool {
+		return $this->immobile;
+	}
+
+	public function setImmobile(bool $immobile = true): void {
+		$this->immobile = $immobile;
 	}
 
 	protected function getBlockSpeedModifier(Block $block): float {
@@ -341,6 +355,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 		$this->movementOptions = new MovementOptions();
 		$this->selectTargetOptions = new SelectTargetOptions();
+		$this->fightOptions = new FightOptions();
 		$this->instanceTarget = null;
 		$this->interesting = 0;
 		$this->targetSelector = $this->getInitialTargetSelector();
@@ -386,7 +401,10 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			$this->selectTargetCycleTick -= $this->selectTargetOptions->getIntervalTick();
 		}
 
-		$this->onFightUpdate($tickDiff);
+		if ($this->getFightOptions()->isEnabled()) {
+			$this->onFightUpdate($tickDiff);
+		}
+
 
 		return parent::entityBaseTick($tickDiff);
 	}
@@ -442,5 +460,9 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		#heavy
 
 		return $this->getWorld()->getCollidingEntities($this->boundingBox->offsetCopy($diffX, $diffY, $diffZ), $this);
+	}
+
+	public function getFightOptions(): FightOptions {
+		return $this->fightOptions;
 	}
 }

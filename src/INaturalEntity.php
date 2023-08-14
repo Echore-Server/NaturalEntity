@@ -15,6 +15,10 @@ interface INaturalEntity {
 
 	public static function getMobType(): MobType;
 
+	public function setImmobile(bool $immobile = true): void;
+
+	public function isImmobile(): bool;
+
 	public function getMovementOptions(): MovementOptions;
 
 	public function getSelectTargetOptions(): SelectTargetOptions;
