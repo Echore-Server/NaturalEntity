@@ -26,6 +26,16 @@ class ProjectileHelper {
 		self::launchProjectile($projectile);
 	}
 
+	public static function setProjectileTarget(Projectile $projectile, Vector3 $target, float $power): void{
+		$base = $projectile->getPosition();
+		$angle = VectorUtil::getAngle($base, $target);
+		$dir = VectorUtil::getDirectionVector($angle->x, $angle->y);
+		$motion = $dir->multiply($power);
+		$projectile->setMotion($motion);
+
+		self::launchProjectile($projectile);
+	}
+
 	public static function launchProjectile(Projectile $projectile): void {
 		$ev = new ProjectileLaunchEvent($projectile);
 		$ev->call();
