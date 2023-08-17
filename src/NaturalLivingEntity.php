@@ -18,12 +18,21 @@ use pocketmine\entity\animation\ArmSwingAnimation;
 use pocketmine\entity\Attribute;
 use pocketmine\entity\Entity;
 use pocketmine\entity\Living;
+use pocketmine\entity\Location;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityDamageEvent;
+use pocketmine\item\Item;
+use pocketmine\item\VanillaItems;
 use pocketmine\math\Vector2;
 use pocketmine\math\Vector3;
 use pocketmine\nbt\tag\CompoundTag;
+use pocketmine\network\mcpe\convert\TypeConverter;
+use pocketmine\network\mcpe\NetworkBroadcastUtils;
+use pocketmine\network\mcpe\protocol\MobEquipmentPacket;
+use pocketmine\network\mcpe\protocol\types\inventory\ContainerIds;
+use pocketmine\network\mcpe\protocol\types\inventory\ItemStackWrapper;
 use pocketmine\player\Player;
+use pocketmine\timings\Timings;
 use pocketmine\world\Position;
 
 abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFightingEntity {
@@ -39,6 +48,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	protected float $attackRange;
 
 	protected bool $immobile = false;
+
+	protected Item $heldItem;
 
 	private FightOptions $fightOptions;
 
@@ -277,7 +288,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 				$this->lastDamageCauseByPlayerTick = $this->getWorld()->getServer()->getTick();
 			}
 
-			if ($damager !== $this->getInstanceTarget()) {
+			if ($damager !== $this->getInstanceTarget() && $this->canAngryByAttackFrom($damager)) {
 				if (is_null($this->getInstanceTarget())) {
 					$this->setInstanceTarget($damager, 400);
 				} else {
@@ -300,7 +311,11 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			return null;
 		}
 
-		return ($this->instanceTarget->isClosed() || !$this->instanceTarget->isAlive()) ? $this->instanceTarget = null : $this->instanceTarget;
+		if ($this->instanceTarget->isClosed() || !$this->instanceTarget->isAlive()) {
+			$this->removeInstanceTarget();
+		}
+
+		return $this->instanceTarget;
 	}
 
 	public function setInstanceTarget(Entity $entity, int $initialInteresting): void {
@@ -309,6 +324,17 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->selectTargetCycleTick = 0;
 
 		$this->setTargetEntity($entity);
+	}
+
+	public function removeInstanceTarget(): void {
+		$this->instanceTarget = null;
+		$this->interesting = 0;
+
+		$this->setTargetEntity(null);
+	}
+
+	public function canAngryByAttackFrom(Entity $entity): bool {
+		return true;
 	}
 
 	/**
@@ -350,6 +376,122 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->interesting = $interesting;
 	}
 
+	protected function move(float $dx, float $dy, float $dz): void {
+		$this->blocksAround = null;
+
+		Timings::$entityMove->startTiming();
+		Timings::$entityMoveCollision->startTiming();
+
+		$wantedX = $dx;
+		$wantedY = $dy;
+		$wantedZ = $dz;
+
+		if ($this->keepMovement) {
+			$this->boundingBox->offset($dx, $dy, $dz);
+		} else {
+			$this->ySize *= self::STEP_CLIP_MULTIPLIER;
+
+			$moveBB = clone $this->boundingBox;
+
+			assert(abs($dx) <= 20 && abs($dy) <= 20 && abs($dz) <= 20, "Movement distance is excessive: dx=$dx, dy=$dy, dz=$dz");
+
+			$list = $this->getWorld()->getCollisionBoxes($this, $moveBB->addCoord($dx, $dy, $dz), false);
+
+			foreach ($list as $bb) {
+				$dy = $bb->calculateYOffset($moveBB, $dy);
+			}
+
+			$moveBB->offset(0, $dy, 0);
+
+			$fallingFlag = ($this->onGround || ($dy != $wantedY && $wantedY < 0));
+
+			foreach ($list as $bb) {
+				$dx = $bb->calculateXOffset($moveBB, $dx);
+			}
+
+			$moveBB->offset($dx, 0, 0);
+
+			foreach ($list as $bb) {
+				$dz = $bb->calculateZOffset($moveBB, $dz);
+			}
+
+			$moveBB->offset(0, 0, $dz);
+
+			if ($this->stepHeight > 0 && $fallingFlag && ($wantedX != $dx || $wantedZ != $dz)) {
+				$cx = $dx;
+				$cy = $dy;
+				$cz = $dz;
+				$dx = $wantedX;
+				$dy = $this->stepHeight;
+				$dz = $wantedZ;
+
+				$stepBB = clone $this->boundingBox;
+
+				$list = $this->getWorld()->getCollisionBoxes($this, $stepBB->addCoord($dx, $dy, $dz), false);
+				foreach ($list as $bb) {
+					$dy = $bb->calculateYOffset($stepBB, $dy);
+				}
+
+				$stepBB->offset(0, $dy, 0);
+
+				foreach ($list as $bb) {
+					$dx = $bb->calculateXOffset($stepBB, $dx);
+				}
+
+				$stepBB->offset($dx, 0, 0);
+
+				foreach ($list as $bb) {
+					$dz = $bb->calculateZOffset($stepBB, $dz);
+				}
+
+				$stepBB->offset(0, 0, $dz);
+
+				$reverseDY = -$dy;
+				foreach ($list as $bb) {
+					$reverseDY = $bb->calculateYOffset($stepBB, $reverseDY);
+				}
+				$dy += $reverseDY;
+				$stepBB->offset(0, $reverseDY, 0);
+
+				if (($cx ** 2 + $cz ** 2) >= ($dx ** 2 + $dz ** 2)) {
+					$dx = $cx;
+					$dy = $cy;
+					$dz = $cz;
+				} else {
+					$moveBB = $stepBB;
+					$this->ySize += $dy;
+				}
+			}
+
+			$this->boundingBox = $moveBB;
+		}
+		Timings::$entityMoveCollision->stopTiming();
+
+		$this->location = new Location(
+			($this->boundingBox->minX + $this->boundingBox->maxX) / 2,
+			$this->boundingBox->minY - $this->ySize,
+			($this->boundingBox->minZ + $this->boundingBox->maxZ) / 2,
+			$this->location->world,
+			$this->location->yaw,
+			$this->location->pitch
+		);
+
+		$this->getWorld()->onEntityMoved($this);
+		// $this->checkBlockIntersections();
+		$this->checkGroundState($wantedX, $wantedY, $wantedZ, $dx, $dy, $dz);
+		$postFallVerticalVelocity = $this->updateFallState($dy, $this->onGround);
+
+		$this->motion = $this->motion->withComponents(
+			$wantedX != $dx ? 0 : null,
+			$postFallVerticalVelocity ?? ($wantedY != $dy ? 0 : null),
+			$wantedZ != $dz ? 0 : null
+		);
+
+		//TODO: vehicle collision events (first we need to spawn them!)
+
+		Timings::$entityMove->stopTiming();
+	}
+
 	protected function initEntity(CompoundTag $nbt): void {
 		parent::initEntity($nbt);
 
@@ -364,19 +506,40 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->postAttackCoolDown = 0;
 		$this->setAttackRange($this->getInitialAttackRange());
 
+		$this->setItemInHand(VanillaItems::AIR());
+
 		// override parent properties
 		$this->stepHeight = 1.05;
+
+		$this->initStyle();
 	}
 
 	abstract protected function getInitialTargetSelector(): TargetSelector;
 
 	abstract protected function getInitialAttackRange(): float;
 
+	public function setItemInHand(Item $item): void {
+		$this->heldItem = $item;
+
+		NetworkBroadcastUtils::broadcastPackets(
+			$this->getViewers(),
+			[
+				MobEquipmentPacket::create(
+					$this->getId(),
+					ItemStackWrapper::legacy(TypeConverter::getInstance()->coreItemStackToNet($item)),
+					0,
+					0,
+					ContainerIds::INVENTORY
+				)
+			]
+		);
+	}
+
 	protected function entityBaseTick(int $tickDiff = 1): bool {
-		if ($this->instanceTarget !== null) {
+		if (!is_null($this->getInstanceTarget())) {
 			$this->targetCycle($tickDiff);
 
-			if ($this->interesting < 0) {
+			if ($this->interesting <= 0) {
 				$this->removeInstanceTarget();
 			}
 		}
@@ -411,13 +574,14 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	protected function targetCycle(int $tickDiff = 1): void {
 		$this->interesting -= $tickDiff;
+
+		if (!$this->canContinueTargeting($this->getInstanceTarget())) {
+			$this->interesting = 0;
+		}
 	}
 
-	public function removeInstanceTarget(): void {
-		$this->instanceTarget = null;
-		$this->interesting = 0;
-
-		$this->setTargetEntity(null);
+	public function canContinueTargeting(Entity $entity): bool {
+		return ($entity instanceof Living && $entity->getName() !== $this->getName()) && (!($entity instanceof Player) || $entity->hasFiniteResources());
 	}
 
 	protected function processEntityRepulsion(): void {
