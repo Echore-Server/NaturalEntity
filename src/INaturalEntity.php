@@ -8,6 +8,7 @@ use Echore\NaturalEntity\option\MovementOptions;
 use Echore\NaturalEntity\option\SelectTargetOptions;
 use pocketmine\entity\Entity;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
+use pocketmine\item\Item;
 use pocketmine\math\Vector2;
 use pocketmine\math\Vector3;
 
@@ -19,9 +20,13 @@ interface INaturalEntity {
 
 	public function isImmobile(): bool;
 
+	public function initStyle(): void;
+
 	public function getMovementOptions(): MovementOptions;
 
 	public function getSelectTargetOptions(): SelectTargetOptions;
+
+	public function setItemInHand(Item $item): void;
 
 	public function getPostAttackCoolDown(): int;
 
