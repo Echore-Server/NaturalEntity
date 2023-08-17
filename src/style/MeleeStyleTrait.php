@@ -41,4 +41,7 @@ trait MeleeStyleTrait {
 		$this->tryAttackEntity($this->getInstanceTarget());
 	}
 
+	public function initStyle(): void {
+
+	}
 }
