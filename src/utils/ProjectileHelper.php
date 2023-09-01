@@ -7,11 +7,8 @@ namespace Echore\NaturalEntity\utils;
 use pocketmine\entity\Entity;
 use pocketmine\entity\Location;
 use pocketmine\entity\projectile\Arrow;
-use pocketmine\entity\projectile\Projectile;
-use pocketmine\event\entity\ProjectileLaunchEvent;
 use pocketmine\math\Vector3;
 use pocketmine\world\Position;
-use pocketmine\world\sound\LaunchSound;
 
 class ProjectileHelper {
 
@@ -23,27 +20,18 @@ class ProjectileHelper {
 		$projectile->setBaseDamage($damage);
 		$projectile->setMotion($motion);
 
-		self::launchProjectile($projectile);
+		self::launch($projectile);
 	}
 
-	public static function setProjectileTarget(Projectile $projectile, Vector3 $target, float $power): void{
-		$base = $projectile->getPosition();
+	public static function launch(Entity $entity): void {
+		$entity->spawnToAll();
+	}
+
+	public static function setThrowingTarget(Entity $throwing, Vector3 $target, float $power): void {
+		$base = $throwing->getPosition();
 		$angle = VectorUtil::getAngle($base, $target);
 		$dir = VectorUtil::getDirectionVector($angle->x, $angle->y);
 		$motion = $dir->multiply($power);
-		$projectile->setMotion($motion);
-
-		self::launchProjectile($projectile);
-	}
-
-	public static function launchProjectile(Projectile $projectile): void {
-		$ev = new ProjectileLaunchEvent($projectile);
-		$ev->call();
-		if ($ev->isCancelled()) {
-			$projectile->close();
-		} else {
-			$projectile->spawnToAll();
-			$projectile->getWorld()->addSound($projectile->getPosition(), new LaunchSound());
-		}
+		$throwing->setMotion($motion);
 	}
 }

@@ -8,10 +8,12 @@ use Echore\NaturalEntity\INaturalEntity;
 use Echore\NaturalEntity\utils\ProjectileHelper;
 use Echore\NaturalEntity\utils\VectorUtil;
 use pocketmine\entity\Attribute;
+use pocketmine\entity\Entity;
 use pocketmine\entity\Living;
 use pocketmine\entity\Location;
 use pocketmine\entity\projectile\Arrow;
 use pocketmine\entity\projectile\Projectile;
+use pocketmine\math\Vector3;
 
 trait RangedStyleTrait {
 	protected float $launchPower = 2;
@@ -48,22 +50,33 @@ trait RangedStyleTrait {
 				$this->walkBackward();
 			}
 
-			$projectile = $this->createProjectile(Location::fromObject($this->getEyePos(), $this->getWorld(), $this->getLocation()->yaw, $this->getLocation()->pitch));
-
-			ProjectileHelper::setProjectileTarget($projectile, $this->getInstanceTarget()->getEyePos(), $this->getLaunchPower());
-			$projectile->setBaseDamage($this->getAttributeMap()->get(Attribute::ATTACK_DAMAGE)->getValue());
-
-			ProjectileHelper::launchProjectile(
-				$projectile
-			);
+			$this->fire($this->getInstanceTarget());
 			$this->setPostAttackCoolDown($this->getAdditionalAttackCoolDown());
 		} else {
 			$this->walkForward();
 		}
 	}
 
-	protected function createProjectile(Location $location): Projectile {
+	protected function fire(Entity $target): void {
+		$entityThrows = $this->createEntityThrows(Location::fromObject($this->getEyePos(), $this->getWorld(), $this->getLocation()->yaw, $this->getLocation()->pitch));
+
+		ProjectileHelper::setThrowingTarget($entityThrows, $this->getTargetPosition($target), $this->getLaunchPower());
+
+		if ($entityThrows instanceof Projectile) {
+			$entityThrows->setBaseDamage($this->getAttributeMap()->get(Attribute::ATTACK_DAMAGE)->getValue());
+		}
+
+		ProjectileHelper::launch(
+			$entityThrows
+		);
+	}
+
+	protected function createEntityThrows(Location $location): Entity {
 		return new Arrow($location, $this, true);
+	}
+
+	protected function getTargetPosition(Entity $entity): Vector3 {
+		return $entity->getEyePos();
 	}
 
 	/**
