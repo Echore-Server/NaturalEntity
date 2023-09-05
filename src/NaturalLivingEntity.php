@@ -581,7 +581,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	}
 
 	public function canContinueTargeting(Entity $entity): bool {
-		return ($entity instanceof Living && $entity->getName() !== $this->getName()) && (!($entity instanceof Player) || $entity->hasFiniteResources());
+		return ($entity instanceof Living && $entity->getName() !== $this->getName()) && (!($entity instanceof Player) || ($entity->hasFiniteResources() && !$entity->isSpectator()));
 	}
 
 	protected function processEntityRepulsion(): void {
