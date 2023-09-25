@@ -109,8 +109,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			$horizontal = VectorUtil::getDirectionHorizontal(VectorUtil::getAngle($position, $to)->x);
 		} else {
 			$horizontal = null;
-			foreach (array_merge([$position], $position->sidesArray()) as $target) {
-				foreach (array_merge([$to], $to->sidesArray()) as $targetTo) {
+			foreach ([$position] + $position->sidesArray() as $target) {
+				foreach ([$to] + $to->sidesArray() as $targetTo) {
 					if ($this->pathProvider->isAvailable($target, $targetTo)) {
 						$next = $this->pathProvider->getNextPosition($target->floor(), $targetTo->floor());
 
@@ -120,7 +120,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 				}
 			}
 
-			if (is_null($horizontal)) {
+			if ($horizontal === null) {
 				return null;
 			}
 		}
@@ -226,7 +226,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			return false;
 		}
 
-		$dist = VectorUtil::distanceToAABB($this->getEyePos(), $entity->getBoundingBox());
+		$dist = $this->getEyePos()->distance($entity->getEyePos());
 
 		if ($dist > $this->getAttackRange()) {
 			return false;
@@ -343,7 +343,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	public function setLastDamageCause(?EntityDamageEvent $type): void {
 		$this->lastDamageCause = $type;
 
-		if (is_null($type)) {
+		if ($type === null) {
 			$this->lastDamageCauseTick = null;
 		} else {
 			$this->lastDamageCauseTick = $this->getWorld()->getServer()->getTick();
@@ -359,7 +359,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	}
 
 	public function setLastDamageCauseByPlayer(?EntityDamageByEntityEvent $event, ?int $tick = null): void {
-		if (!is_null($event)) {
+		if ($event !== null) {
 			$this->lastDamageCauseByPlayerTick = $tick;
 			$this->lastDamageCauseByPlayer = $event;
 		} else {
@@ -536,7 +536,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	}
 
 	protected function entityBaseTick(int $tickDiff = 1): bool {
-		if (!is_null($this->getInstanceTarget())) {
+		if ($this->getInstanceTarget() !== null) {
 			$this->targetCycle($tickDiff);
 
 			if ($this->interesting <= 0) {
@@ -552,12 +552,12 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 		if (
 			$this->selectTargetOptions->isEnabled() &&
-			is_null($this->getInstanceTarget()) &&
+			$this->getInstanceTarget() === null &&
 			$this->selectTargetCycleTick > $this->selectTargetOptions->getIntervalTick()
 		) {
 			$entity = $this->targetSelector->select();
 
-			if (!is_null($entity)) {
+			if ($entity !== null) {
 				$this->setInstanceTarget($entity, $this->selectTargetOptions->getInitialInteresting());
 			}
 
