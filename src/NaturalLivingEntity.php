@@ -283,7 +283,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		if ($source instanceof EntityDamageByEntityEvent) {
 			$damager = $source->getDamager();
 
-			if ($damager instanceof Player || $damager->getOwningEntity() instanceof Player) {
+			if ($damager instanceof Player || $damager?->getOwningEntity() instanceof Player) {
 				$this->lastDamageCauseByPlayer = $source;
 				$this->lastDamageCauseByPlayerTick = $this->getWorld()->getServer()->getTick();
 			}
