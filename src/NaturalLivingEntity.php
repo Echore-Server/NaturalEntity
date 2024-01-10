@@ -21,12 +21,15 @@ use pocketmine\entity\Living;
 use pocketmine\entity\Location;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityDamageEvent;
+use pocketmine\inventory\CallbackInventoryListener;
+use pocketmine\inventory\Inventory;
 use pocketmine\item\Item;
 use pocketmine\item\VanillaItems;
 use pocketmine\math\Vector2;
 use pocketmine\math\Vector3;
 use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\network\mcpe\convert\TypeConverter;
+use pocketmine\network\mcpe\EntityEventBroadcaster;
 use pocketmine\network\mcpe\NetworkBroadcastUtils;
 use pocketmine\network\mcpe\protocol\MobEquipmentPacket;
 use pocketmine\network\mcpe\protocol\types\inventory\ContainerIds;
@@ -50,6 +53,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	protected bool $immobile = false;
 
 	protected Item $heldItem;
+
+	private bool $heldItemChanged;
 
 	private FightOptions $fightOptions;
 
@@ -275,7 +280,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		return $source;
 	}
 
-	private function getAttackDamage(): float {
+	public function getAttackDamage(): float {
 		return $this->attributeMap->get(Attribute::ATTACK_DAMAGE)->getValue();
 	}
 
@@ -374,6 +379,11 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	public function setInteresting(int $interesting): void {
 		$this->interesting = $interesting;
+	}
+
+	public function setItemInHand(Item $item): void {
+		$this->heldItem = $item;
+		$this->heldItemChanged = true;
 	}
 
 	protected function move(float $dx, float $dy, float $dz): void {
@@ -494,10 +504,12 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	protected function initEntity(CompoundTag $nbt): void {
 		parent::initEntity($nbt);
+		$this->optimizeArmorListener();
 
 		$this->movementOptions = new MovementOptions();
 		$this->selectTargetOptions = new SelectTargetOptions();
 		$this->fightOptions = new FightOptions();
+		$this->heldItemChanged = false;
 		$this->instanceTarget = null;
 		$this->interesting = 0;
 		$this->targetSelector = $this->getInitialTargetSelector();
@@ -506,34 +518,41 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->postAttackCoolDown = 0;
 		$this->setAttackRange($this->getInitialAttackRange());
 
-		$this->setItemInHand(VanillaItems::AIR());
-
+		$this->heldItem = VanillaItems::AIR();
 		// override parent properties
 		$this->stepHeight = 1.05;
 
 		$this->initStyle();
 	}
 
+	private function optimizeArmorListener(): void {
+		$this->armorInventory->getListeners()->clear();
+
+		$this->armorInventory->getListeners()->add(
+			new CallbackInventoryListener(
+				function(Inventory $inventory, int $slot, Item $oldItem): void {
+					$newItem = $inventory->getItem($slot);
+
+					if (!$newItem->equals($oldItem, checkCompound: false)) {
+						NetworkBroadcastUtils::broadcastEntityEvent(
+							$this->getViewers(),
+							fn(EntityEventBroadcaster $broadcaster, array $recipients) => $broadcaster->onMobArmorChange($recipients, $this)
+						);
+					}
+				},
+				function(Inventory $inventory, array $oldContents): void {
+					NetworkBroadcastUtils::broadcastEntityEvent(
+						$this->getViewers(),
+						fn(EntityEventBroadcaster $broadcaster, array $recipients) => $broadcaster->onMobArmorChange($recipients, $this)
+					);
+				}
+			)
+		);
+	}
+
 	abstract protected function getInitialTargetSelector(): TargetSelector;
 
 	abstract protected function getInitialAttackRange(): float;
-
-	public function setItemInHand(Item $item): void {
-		$this->heldItem = $item;
-
-		NetworkBroadcastUtils::broadcastPackets(
-			$this->getViewers(),
-			[
-				MobEquipmentPacket::create(
-					$this->getId(),
-					ItemStackWrapper::legacy(TypeConverter::getInstance()->coreItemStackToNet($item)),
-					0,
-					0,
-					ContainerIds::INVENTORY
-				)
-			]
-		);
-	}
 
 	protected function entityBaseTick(int $tickDiff = 1): bool {
 		if ($this->getInstanceTarget() !== null) {
@@ -566,6 +585,21 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 		if ($this->getFightOptions()->isEnabled()) {
 			$this->onFightUpdate($tickDiff);
+		}
+
+		if ($this->heldItemChanged) {
+			NetworkBroadcastUtils::broadcastPackets(
+				$this->getViewers(),
+				[
+					MobEquipmentPacket::create(
+						$this->getId(),
+						ItemStackWrapper::legacy(TypeConverter::getInstance()->coreItemStackToNet($this->heldItem)),
+						0,
+						0,
+						ContainerIds::INVENTORY
+					)
+				]
+			);
 		}
 
 
