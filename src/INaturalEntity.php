@@ -76,5 +76,7 @@ interface INaturalEntity {
 
 	public function setPathProvider(?IPathProvider $pathProvider): void;
 
+	public function getTargetingTick(): int;
+
 	public function walkTo(Vector3 $to, bool $sprintSpeed): ?Vector2;
 }

@@ -54,6 +54,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	protected Item $heldItem;
 
+	private int $targetingTick;
+
 	private bool $heldItemChanged;
 
 	private FightOptions $fightOptions;
@@ -334,6 +336,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	public function removeInstanceTarget(): void {
 		$this->instanceTarget = null;
 		$this->interesting = 0;
+		$this->targetingTick = 0;
 
 		$this->setTargetEntity(null);
 	}
@@ -512,6 +515,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->heldItemChanged = false;
 		$this->instanceTarget = null;
 		$this->interesting = 0;
+		$this->targetingTick = 0;
 		$this->targetSelector = $this->getInitialTargetSelector();
 		$this->selectTargetCycleTick = 0;
 		$this->lastDamageCauseByPlayer = null;
@@ -606,8 +610,16 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		return parent::entityBaseTick($tickDiff);
 	}
 
+	/**
+	 * @return int
+	 */
+	public function getTargetingTick(): int {
+		return $this->targetingTick;
+	}
+
 	protected function targetCycle(int $tickDiff = 1): void {
 		$this->interesting -= $tickDiff;
+		$this->targetingTick += $tickDiff;
 
 		if (!$this->canContinueTargeting($this->getInstanceTarget())) {
 			$this->interesting = 0;
