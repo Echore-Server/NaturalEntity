@@ -25,6 +25,7 @@ use pocketmine\inventory\CallbackInventoryListener;
 use pocketmine\inventory\Inventory;
 use pocketmine\item\Item;
 use pocketmine\item\VanillaItems;
+use pocketmine\math\AxisAlignedBB;
 use pocketmine\math\Vector2;
 use pocketmine\math\Vector3;
 use pocketmine\nbt\tag\CompoundTag;
@@ -35,7 +36,10 @@ use pocketmine\network\mcpe\protocol\MobEquipmentPacket;
 use pocketmine\network\mcpe\protocol\types\inventory\ContainerIds;
 use pocketmine\network\mcpe\protocol\types\inventory\ItemStackWrapper;
 use pocketmine\player\Player;
+use pocketmine\Server;
 use pocketmine\timings\Timings;
+use pocketmine\utils\ObjectSet;
+use pocketmine\world\format\Chunk;
 use pocketmine\world\Position;
 
 abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFightingEntity {
@@ -53,6 +57,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	protected bool $immobile = false;
 
 	protected Item $heldItem;
+
+	protected MobType $mobType;
 
 	private int $targetingTick;
 
@@ -73,6 +79,10 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	private ?IPathProvider $pathProvider = null;
 
 	private ?int $lastDamageCauseTick = null;
+
+	private ObjectSet $disposeHooks;
+
+	private int $lastRepulsionTick = -1;
 
 	public function getMovementOptions(): MovementOptions {
 		return $this->movementOptions;
@@ -195,6 +205,14 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			Cobweb::class => 0.1,
 			default => 1.0
 		};
+	}
+
+	public function getMobType(): MobType {
+		return $this->mobType;
+	}
+
+	public function setMobType(MobType $mobType): void {
+		$this->mobType = $mobType;
 	}
 
 	public function walkForward(bool $sprintSpeed = true): void {
@@ -329,6 +347,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->instanceTarget = $entity;
 		$this->interesting = $initialInteresting;
 		$this->selectTargetCycleTick = 0;
+		$this->targetingTick = 0;
 
 		$this->setTargetEntity($entity);
 	}
@@ -387,6 +406,28 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	public function setItemInHand(Item $item): void {
 		$this->heldItem = $item;
 		$this->heldItemChanged = true;
+	}
+
+	/**
+	 * @return int
+	 */
+	public function getTargetingTick(): int {
+		return $this->targetingTick;
+	}
+
+	/**
+	 * @return ObjectSet
+	 */
+	public function getDisposeHooks(): ObjectSet {
+		return $this->disposeHooks;
+	}
+
+	protected function onDispose(): void {
+		parent::onDispose();
+
+		foreach ($this->disposeHooks as $hook) {
+			($hook)();
+		}
 	}
 
 	protected function move(float $dx, float $dy, float $dz): void {
@@ -508,6 +549,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	protected function initEntity(CompoundTag $nbt): void {
 		parent::initEntity($nbt);
 		$this->optimizeArmorListener();
+		$this->disposeHooks = new ObjectSet();
 
 		$this->movementOptions = new MovementOptions();
 		$this->selectTargetOptions = new SelectTargetOptions();
@@ -521,6 +563,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->lastDamageCauseByPlayer = null;
 		$this->postAttackCoolDown = 0;
 		$this->setAttackRange($this->getInitialAttackRange());
+		$this->mobType = $this::getDefaultMobType();
 
 		$this->heldItem = VanillaItems::AIR();
 		// override parent properties
@@ -592,6 +635,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		}
 
 		if ($this->heldItemChanged) {
+			$this->heldItemChanged = false;
 			NetworkBroadcastUtils::broadcastPackets(
 				$this->getViewers(),
 				[
@@ -608,13 +652,6 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 
 		return parent::entityBaseTick($tickDiff);
-	}
-
-	/**
-	 * @return int
-	 */
-	public function getTargetingTick(): int {
-		return $this->targetingTick;
 	}
 
 	protected function targetCycle(int $tickDiff = 1): void {
@@ -635,27 +672,66 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			return;
 		}
 		$nextPosition = clone $this->getPosition();
-		$collidingEntities = $this->getCollidingEntitiesWithDiff($nextPosition);
-		if (count($collidingEntities) > 0) {
-			$repulsion = [];
-			foreach ($collidingEntities as $entity) {
-				$deltaX = $this->location->x - $entity->location->x;
-				$deltaZ = $this->location->z - $entity->location->z;
-				$f = 1 / max(sqrt($deltaX ** 2 + $deltaZ ** 2), 0.01);
-				$kb = new Vector3(
-					$deltaX * ($f * 0.2),
-					0,
-					$deltaZ * ($f * 0.2),
-				);
-				$repulsion[] = $kb->multiply(0.5);
-			}
 
-			$move = Vector3::sum(...$repulsion);
+		$diffX = $nextPosition->x - $this->location->x;
+		$diffY = $nextPosition->y - $this->location->y;
+		$diffZ = $nextPosition->z - $this->location->z;
 
-			if (count($repulsion) >= 1) {
-				$this->addMotion($move->x, $move->y, $move->z);
+		$tick = Server::getInstance()->getTick();
+
+		if ($tick - $this->lastRepulsionTick <= 1) {
+			return;
+		}
+
+		$repulsion = $this->simplifiedCalculateRepulsion($this->boundingBox->offsetCopy($diffX, $diffY, $diffZ), $this);
+
+		$success = true;
+		if ($repulsion->x === 0 && $repulsion->y === 0 && $repulsion->z === 0) {
+			$success = false;
+		}
+
+		if ($success) {
+			$this->lastRepulsionTick = -1;
+		} else {
+			$this->lastRepulsionTick = $tick;
+		}
+
+		$this->addMotion($repulsion->x, $repulsion->y, $repulsion->z);
+	}
+
+	protected function simplifiedCalculateRepulsion(AxisAlignedBB $bb, Entity $entity): Vector3 {
+		$minX = ((int) floor($bb->minX - 2)) >> Chunk::COORD_BIT_SIZE;
+		$maxX = ((int) floor($bb->maxX + 2)) >> Chunk::COORD_BIT_SIZE;
+		$minZ = ((int) floor($bb->minZ - 2)) >> Chunk::COORD_BIT_SIZE;
+		$maxZ = ((int) floor($bb->maxZ + 2)) >> Chunk::COORD_BIT_SIZE;
+
+		$repulsion = Vector3::zero();
+
+		for ($x = $minX; $x <= $maxX; ++$x) {
+			for ($z = $minZ; $z <= $maxZ; ++$z) {
+				foreach ($entity->getWorld()->getChunkEntities($x, $z) as $ent) {
+					if ($ent !== $entity && $ent->boundingBox->intersectsWith($bb)) {
+						if ($ent->canBeCollidedWith() && ($entity->canCollideWith($ent))) {
+							$deltaX = $this->location->x - $ent->location->x;
+							$deltaZ = $this->location->z - $ent->location->z;
+							$f = 1 / max(sqrt($deltaX ** 2 + $deltaZ ** 2), 0.01);
+							$kb = new Vector3(
+								$deltaX * ($f * 0.2),
+								0,
+								$deltaZ * ($f * 0.2),
+							);
+							$repulsion = $repulsion->addVector($kb->multiply(0.5));
+						}
+					}
+				}
 			}
 		}
+
+		return $repulsion;
+	}
+
+	public function getFightOptions(): FightOptions {
+		return $this->fightOptions;
 	}
 
 	/**
@@ -669,10 +745,6 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 		#heavy
 
-		return $this->getWorld()->getCollidingEntities($this->boundingBox->offsetCopy($diffX, $diffY, $diffZ), $this);
-	}
-
-	public function getFightOptions(): FightOptions {
-		return $this->fightOptions;
+		return $this->simplifiedGetCollidingEntities($this->boundingBox->offsetCopy($diffX, $diffY, $diffZ), $this);
 	}
 }

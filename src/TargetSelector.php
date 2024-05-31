@@ -76,7 +76,7 @@ class TargetSelector {
 
 			$instances[$entity::class] ??= [];
 			$instances[$entity::class][] = $entity;
-			$choices[] = $entity::class;
+			$choices[] = $entity;
 		}
 
 		if (count($choices) === 0) {
@@ -93,7 +93,7 @@ class TargetSelector {
 	}
 
 	/**
-	 * @param (class-string<Entity|INaturalEntity>)[] $choices
+	 * @param (Entity|INaturalEntity)[] $choices
 	 * @return string|null
 	 */
 	private function getChoice(array $choices): ?string {
@@ -103,13 +103,14 @@ class TargetSelector {
 
 		$targets = [];
 
-		foreach ($choices as $entityClass) {
-			if (!$this->isSelectable($entityClass)) {
+		foreach ($choices as $entity) {
+			$entityClass = $entity::class;
+			if (!$this->isSelectable($entity)) {
 				continue;
 			}
 
 			$targets[$entityClass] ??= 0;
-			$targets[$entityClass] += $this->getWeight($entityClass);
+			$targets[$entityClass] += $this->getWeight($entity);
 		}
 
 		$sum = (int) array_sum($targets);
@@ -136,17 +137,21 @@ class TargetSelector {
 		throw new LogicException("This should not be happen");
 	}
 
-	public function isSelectable(string $entityClass): bool {
-		return $this->getWeight($entityClass) > 0;
+	public function isSelectable(Entity $entity): bool {
+		return $this->getWeight($entity) > 0;
 	}
 
-	public function getWeight(string $entityClass): int {
+	public function getWeight(Entity $entity): int {
+		$entityClass = $entity::class;
 		if (isset($this->targets[$entityClass])) {
 			return $this->targets[$entityClass];
 		}
 
 		if (is_a($entityClass, INaturalEntity::class, true)) {
-			return $this->groups[$entityClass::getMobType()->name] ?? 0;
+			/**
+			 * @var INaturalEntity&Entity $entity
+			 */
+			return $this->groups[$entity->getMobType()->name] ?? 0;
 		}
 
 		return 0;

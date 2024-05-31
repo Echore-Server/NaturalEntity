@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Echore\NaturalEntity;
 
+use Closure;
 use Echore\NaturalEntity\option\MovementOptions;
 use Echore\NaturalEntity\option\SelectTargetOptions;
 use pocketmine\entity\Entity;
@@ -11,16 +12,26 @@ use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\item\Item;
 use pocketmine\math\Vector2;
 use pocketmine\math\Vector3;
+use pocketmine\utils\ObjectSet;
 
 interface INaturalEntity {
 
-	public static function getMobType(): MobType;
+	public static function getDefaultMobType(): MobType;
+
+	public function getMobType(): MobType;
+
+	public function setMobType(MobType $mobType): void;
 
 	public function setImmobile(bool $immobile = true): void;
 
 	public function isImmobile(): bool;
 
 	public function initStyle(): void;
+
+	/**
+	 * @return ObjectSet<Closure>
+	 */
+	public function getDisposeHooks(): ObjectSet;
 
 	public function getMovementOptions(): MovementOptions;
 

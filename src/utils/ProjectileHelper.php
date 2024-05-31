@@ -24,6 +24,13 @@ class ProjectileHelper {
 	}
 
 	public static function launch(Entity $entity): void {
+		$motion = $entity->getMotion();
+		$f = sqrt(($motion->x ** 2) + ($motion->z ** 2));
+		$entity->setRotation(
+			atan2($motion->x, $motion->z) * 180 / M_PI,
+			atan2($motion->y, $f) * 180 / M_PI
+		);
+
 		$entity->spawnToAll();
 	}
 
