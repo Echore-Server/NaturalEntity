@@ -51,6 +51,8 @@ interface INaturalEntity {
 
 	public function getInstanceTarget(): ?Entity;
 
+	public function getDestroyCycleHooks(): ObjectSet;
+
 	public function setInstanceTarget(Entity $entity, int $initialInteresting): void;
 
 	public function removeInstanceTarget(): void;

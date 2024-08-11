@@ -82,7 +82,16 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	private ObjectSet $disposeHooks;
 
+	private ObjectSet $destroyCycleHooks;
+
 	private int $lastRepulsionTick = -1;
+
+	/**
+	 * @return ObjectSet
+	 */
+	public function getDestroyCycleHooks(): ObjectSet {
+		return $this->destroyCycleHooks;
+	}
 
 	public function getMovementOptions(): MovementOptions {
 		return $this->movementOptions;
@@ -265,6 +274,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 		$source = $this->postAttack($entity);
 
+
 		if (!$source->isCancelled()) {
 			$this->interesting += 25;
 		}
@@ -313,6 +323,11 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 				$this->lastDamageCauseByPlayerTick = $this->getWorld()->getServer()->getTick();
 			}
 
+			$child = $damager?->getOwningEntity();
+			if ($child instanceof Player && !$child->isOnline()) {
+				return;
+			}
+
 			if ($damager !== $this->getInstanceTarget() && $this->canAngryByAttackFrom($damager)) {
 				if (is_null($this->getInstanceTarget())) {
 					$this->setInstanceTarget($damager, 400);
@@ -332,7 +347,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	}
 
 	public function getInstanceTarget(): ?Entity {
-		if (is_null($this->instanceTarget)) {
+		if ($this->instanceTarget === null) {
 			return null;
 		}
 
@@ -420,6 +435,15 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	 */
 	public function getDisposeHooks(): ObjectSet {
 		return $this->disposeHooks;
+	}
+
+	protected function destroyCycles(): void {
+		parent::destroyCycles();
+		unset($this->lastDamageCauseByPlayer, $this->targetSelector, $this->instanceTarget);
+
+		foreach ($this->destroyCycleHooks as $hook) {
+			($hook)();
+		}
 	}
 
 	protected function onDispose(): void {
@@ -564,6 +588,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->postAttackCoolDown = 0;
 		$this->setAttackRange($this->getInitialAttackRange());
 		$this->mobType = $this::getDefaultMobType();
+		$this->destroyCycleHooks = new ObjectSet();
 
 		$this->heldItem = VanillaItems::AIR();
 		// override parent properties
