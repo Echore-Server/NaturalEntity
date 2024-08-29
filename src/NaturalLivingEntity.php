@@ -40,7 +40,6 @@ use pocketmine\Server;
 use pocketmine\timings\Timings;
 use pocketmine\utils\ObjectSet;
 use pocketmine\world\format\Chunk;
-use pocketmine\world\Position;
 
 abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFightingEntity {
 
@@ -555,7 +554,6 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		);
 
 		$this->getWorld()->onEntityMoved($this);
-		// $this->checkBlockIntersections();
 		$this->checkGroundState($wantedX, $wantedY, $wantedZ, $dx, $dy, $dz);
 		$postFallVerticalVelocity = $this->updateFallState($dy, $this->onGround);
 
@@ -757,19 +755,5 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	public function getFightOptions(): FightOptions {
 		return $this->fightOptions;
-	}
-
-	/**
-	 * @param Position $pos
-	 * @return Entity[]
-	 */
-	protected function getCollidingEntitiesWithDiff(Position $pos): array {
-		$diffX = $pos->x - $this->location->x;
-		$diffY = $pos->y - $this->location->y;
-		$diffZ = $pos->z - $this->location->z;
-
-		#heavy
-
-		return $this->simplifiedGetCollidingEntities($this->boundingBox->offsetCopy($diffX, $diffY, $diffZ), $this);
 	}
 }
