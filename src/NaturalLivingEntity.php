@@ -85,6 +85,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	private int $lastRepulsionTick = -1;
 
+	private int $broadcastMovementBuffer = 1;
+
 	/**
 	 * @return ObjectSet
 	 */
@@ -314,6 +316,14 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	}
 
 	public function attack(EntityDamageEvent $source): void {
+		if ($this->isFlaggedForDespawn() || $this->isClosed()) {
+			return;
+		}
+
+		if ($source->getCause() === EntityDamageEvent::CAUSE_FALL || $source->getCause() === EntityDamageEvent::CAUSE_SUFFOCATION) {
+			$source->cancel();
+		}
+
 		if ($source instanceof EntityDamageByEntityEvent) {
 			$damager = $source->getDamager();
 
@@ -568,6 +578,15 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		Timings::$entityMove->stopTiming();
 	}
 
+	protected function broadcastMovement(bool $teleport = false): void {
+		if (--$this->broadcastMovementBuffer <= 0) {
+			$this->broadcastMovementBuffer = 2;
+		} else {
+			return;
+		}
+		parent::broadcastMovement($teleport);
+	}
+
 	protected function initEntity(CompoundTag $nbt): void {
 		parent::initEntity($nbt);
 		$this->optimizeArmorListener();
@@ -755,5 +774,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	public function getFightOptions(): FightOptions {
 		return $this->fightOptions;
+	}
+
+	protected function checkBlockIntersections(): void {
 	}
 }
