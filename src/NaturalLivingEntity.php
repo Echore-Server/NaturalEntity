@@ -87,6 +87,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	private int $broadcastMovementBuffer = 1;
 
+	private array $lastDamageByEntityTicks = [];
+
 	/**
 	 * @return ObjectSet
 	 */
@@ -324,7 +326,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			$source->cancel();
 		}
 
-		if ($source instanceof EntityDamageByEntityEvent) {
+		if ($source instanceof EntityDamageByEntityEvent && $source->getDamager() !== null) {
 			$damager = $source->getDamager();
 
 			if ($damager instanceof Player || $damager?->getOwningEntity() instanceof Player) {
@@ -337,18 +339,22 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 				return;
 			}
 
-			if ($damager !== $this->getInstanceTarget() && $this->canAngryByAttackFrom($damager)) {
-				if (is_null($this->getInstanceTarget())) {
-					$this->setInstanceTarget($damager, 400);
-				} else {
-					$this->interesting -= 52;
+			if (($this->lastDamageByEntityTicks[$damager->getId()] ?? 0) - Server::getInstance()->getTick() > 4) {
+				$this->lastDamageByEntityTicks[$damager->getId()] = Server::getInstance()->getTick();
 
-					if ($this->interesting <= 0) {
-						$this->setInstanceTarget($damager, 300);
+				if ($damager !== $this->getInstanceTarget() && $this->canAngryByAttackFrom($damager)) {
+					if (is_null($this->getInstanceTarget())) {
+						$this->setInstanceTarget($damager, 400);
+					} else {
+						$this->interesting -= 72;
+
+						if ($this->interesting <= 0) {
+							$this->setInstanceTarget($damager, 300);
+						}
 					}
+				} else {
+					$this->interesting += 65;
 				}
-			} else {
-				$this->interesting += 45;
 			}
 		}
 
