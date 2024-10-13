@@ -317,6 +317,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		return $this->attributeMap->get(Attribute::ATTACK_DAMAGE)->getValue();
 	}
 
+
 	public function attack(EntityDamageEvent $source): void {
 		if ($this->isFlaggedForDespawn() || $this->isClosed()) {
 			return;
@@ -450,6 +451,13 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	 */
 	public function getDisposeHooks(): ObjectSet {
 		return $this->disposeHooks;
+	}
+
+	protected function tryChangeMovement(): void {
+		parent::tryChangeMovement();
+		if ($this->immobile) {
+			$this->motion = Vector3::zero();
+		}
 	}
 
 	protected function destroyCycles(): void {

@@ -54,7 +54,7 @@ class TargetSelector {
 	public function select(): ?Entity {
 		$range = $this->naturalEntity->getTargetingRange() / 2;
 
-		$choices = [];
+		$weights = [];
 		$instances = [];
 		foreach (
 			$this->naturalEntity->getWorld()->getNearbyEntities(
@@ -74,43 +74,54 @@ class TargetSelector {
 				continue;
 			}
 
+			$weight = $this->getWeight($entity);
+
+			if ($weight <= 0) {
+				continue;
+			}
+
 			$instances[$entity::class] ??= [];
 			$instances[$entity::class][] = $entity;
-			$choices[] = $entity;
+			$weights[$entity::class] ??= 0;
+			$weights[$entity::class] += $weight;
 		}
 
-		if (count($choices) === 0) {
+		if (count($weights) === 0) {
 			return null;
 		}
 
-		$entityClass = $this->getChoice($choices);
+		$entityClass = $this->getChoice($weights);
 
-		if (is_null($entityClass)) {
+		if ($entityClass === null) {
 			return null;
 		}
 
 		return $instances[$entityClass][array_rand($instances[$entityClass] ?? throw new LogicException("Instance not found"))];
 	}
 
+	public function getWeight(Entity $entity): int {
+		$entityClass = $entity::class;
+		if (isset($this->targets[$entityClass])) {
+			return $this->targets[$entityClass];
+		}
+
+		if (is_a($entityClass, INaturalEntity::class, true)) {
+			/**
+			 * @var INaturalEntity&Entity $entity
+			 */
+			return $this->groups[$entity->getMobType()->name] ?? 0;
+		}
+
+		return 0;
+	}
+
 	/**
 	 * @param (Entity|INaturalEntity)[] $choices
 	 * @return string|null
 	 */
-	private function getChoice(array $choices): ?string {
-		if (count($choices) === 0) {
+	private function getChoice(array $targets): ?string {
+		if (count($targets) === 0) {
 			return null;
-		}
-
-		$targets = [];
-
-		foreach ($choices as $entity) {
-			$entityClass = $entity::class;
-			if (!$this->isSelectable($entity)) {
-				continue;
-			}
-
-			$targets[$entityClass] ??= 0;
-			$targets[$entityClass] += $this->getWeight($entity);
 		}
 
 		$sum = (int) array_sum($targets);
@@ -135,25 +146,5 @@ class TargetSelector {
 		}
 
 		throw new LogicException("This should not be happen");
-	}
-
-	public function isSelectable(Entity $entity): bool {
-		return $this->getWeight($entity) > 0;
-	}
-
-	public function getWeight(Entity $entity): int {
-		$entityClass = $entity::class;
-		if (isset($this->targets[$entityClass])) {
-			return $this->targets[$entityClass];
-		}
-
-		if (is_a($entityClass, INaturalEntity::class, true)) {
-			/**
-			 * @var INaturalEntity&Entity $entity
-			 */
-			return $this->groups[$entity->getMobType()->name] ?? 0;
-		}
-
-		return 0;
 	}
 }
