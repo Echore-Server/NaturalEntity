@@ -33,6 +33,7 @@ use pocketmine\network\mcpe\convert\TypeConverter;
 use pocketmine\network\mcpe\EntityEventBroadcaster;
 use pocketmine\network\mcpe\NetworkBroadcastUtils;
 use pocketmine\network\mcpe\protocol\MobEquipmentPacket;
+use pocketmine\network\mcpe\protocol\MoveActorAbsolutePacket;
 use pocketmine\network\mcpe\protocol\types\inventory\ContainerIds;
 use pocketmine\network\mcpe\protocol\types\inventory\ItemStackWrapper;
 use pocketmine\player\Player;
@@ -592,13 +593,40 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		Timings::$entityMove->stopTiming();
 	}
 
+	public function setRotation(float $yaw, float $pitch): void {
+		parent::setRotation($yaw, $pitch);
+		$this->broadcastMovementBuffer = 0;
+	}
+
 	protected function broadcastMovement(bool $teleport = false): void {
-		if (--$this->broadcastMovementBuffer <= 0) {
-			$this->broadcastMovementBuffer = 2;
-		} else {
-			return;
+		if (!$teleport){
+			if ($this->broadcastMovementBuffer <= 0) {
+				$this->broadcastMovementBuffer = 2;
+			} else {
+				return;
+			}
 		}
-		parent::broadcastMovement($teleport);
+
+		// crazy hack for rotation bug
+		NetworkBroadcastUtils::broadcastPackets($this->hasSpawned, [MoveActorAbsolutePacket::create(
+			$this->id,
+			$this->getOffsetPosition($this->location)->add(
+				(lcg_value() - 0.5) * 0.01, // craziest ever in my code. thank you mojang.
+				0,
+				(lcg_value() - 0.5) * 0.01
+			),
+			$this->location->pitch,
+			$this->location->yaw,
+			$this->location->yaw,
+			(
+				//TODO: We should be setting FLAG_TELEPORT here to disable client-side movement interpolation, but it
+				//breaks player teleporting (observers see the player rubberband back to the pre-teleport position while
+				//the teleported player sees themselves at the correct position), and does nothing whatsoever for
+				//non-player entities (movement is still interpolated). Both of these are client bugs.
+				//See https://github.com/pmmp/PocketMine-MP/issues/4394
+			($this->onGround ? MoveActorAbsolutePacket::FLAG_GROUND : 0)
+			)
+		)]);
 	}
 
 	protected function initEntity(CompoundTag $nbt): void {
@@ -667,6 +695,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		}
 
 		$this->postAttackCoolDown -= $tickDiff;
+		$this->broadcastMovementBuffer-= $tickDiff;
 
 		$this->selectTargetCycleTick += $tickDiff;
 
