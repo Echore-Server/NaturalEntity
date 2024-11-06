@@ -58,6 +58,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	protected Item $heldItem;
 
+	protected Item $heldItemInOffhand;
+
 	protected MobType $mobType;
 
 	private int $targetingTick;
@@ -440,6 +442,11 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->heldItemChanged = true;
 	}
 
+	public function setItemInOffhand(Item $item): void {
+		$this->heldItemInOffhand = $item;
+		$this->heldItemChanged = true;
+	}
+
 	/**
 	 * @return int
 	 */
@@ -650,6 +657,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->destroyCycleHooks = new ObjectSet();
 
 		$this->heldItem = VanillaItems::AIR();
+		$this->heldItemInOffhand = VanillaItems::AIR();
 		// override parent properties
 		$this->stepHeight = 1.05;
 
@@ -730,7 +738,14 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 						0,
 						0,
 						ContainerIds::INVENTORY
-					)
+					),
+					MobEquipmentPacket::create(
+						$this->getId(),
+						ItemStackWrapper::legacy(TypeConverter::getInstance()->coreItemStackToNet($this->heldItemInOffhand)),
+						0,
+						0,
+						ContainerIds::OFFHAND
+					),
 				]
 			);
 		}
