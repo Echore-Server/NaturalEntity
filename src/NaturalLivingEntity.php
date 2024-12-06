@@ -772,7 +772,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		if (!$this->movementOptions->isRepulsionEnabled()) {
 			return;
 		}
-		
+
 		$tick = Server::getInstance()->getTick();
 
 		if ($tick - $this->lastRepulsionTick <= 2) {
@@ -803,10 +803,10 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	}
 
 	protected function simplifiedCalculateRepulsion(AxisAlignedBB $bb, Entity $entity): Vector3 {
-		$minX = ((int) floor($bb->minX - 2)) >> Chunk::COORD_BIT_SIZE;
-		$maxX = ((int) floor($bb->maxX + 2)) >> Chunk::COORD_BIT_SIZE;
-		$minZ = ((int) floor($bb->minZ - 2)) >> Chunk::COORD_BIT_SIZE;
-		$maxZ = ((int) floor($bb->maxZ + 2)) >> Chunk::COORD_BIT_SIZE;
+		$minX = ((int) floor($bb->minX - 1)) >> Chunk::COORD_BIT_SIZE;
+		$maxX = ((int) floor($bb->maxX + 1)) >> Chunk::COORD_BIT_SIZE;
+		$minZ = ((int) floor($bb->minZ - 1)) >> Chunk::COORD_BIT_SIZE;
+		$maxZ = ((int) floor($bb->maxZ + 1)) >> Chunk::COORD_BIT_SIZE;
 
 		$repulsion = Vector3::zero();
 
