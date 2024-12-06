@@ -12,7 +12,6 @@ class DefaultTargetSelector {
 		$selector = new TargetSelector($entity);
 
 		$selector->setGroupWeight(MobType::FRIEND, 100);
-		$selector->setGroupWeight(MobType::NEUTRAL, 40);
 
 		if ($includePlayer) {
 			$selector->setEntityWeight(Player::class, 100);

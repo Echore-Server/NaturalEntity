@@ -7,6 +7,7 @@ namespace Echore\NaturalEntity;
 use LogicException;
 use pocketmine\entity\Entity;
 use pocketmine\entity\Living;
+use pocketmine\player\Player;
 use RuntimeException;
 
 class TargetSelector {
@@ -44,6 +45,12 @@ class TargetSelector {
 			throw new RuntimeException("Already registered target");
 		}
 
+		if ($choiceWeight <= 0) {
+			unset($this->targets[$entityClass]);
+
+			return;
+		}
+
 		$this->targets[$entityClass] = $choiceWeight;
 	}
 
@@ -53,20 +60,42 @@ class TargetSelector {
 
 	public function select(): ?Entity {
 		$range = $this->naturalEntity->getTargetingRange() / 2;
+		$bb = $this->naturalEntity->getBoundingBox()->expandedCopy(
+			$range,
+			$range,
+			$range
+		);
 
+		$start = microtime(true);
+		if (MobTypeWorldMapService::isInitialized() && $this->shouldUseFriendlyOptimizedSelection()) {
+			$needsDistanceCheck = true;
+			$entities = MobTypeWorldMapService::getEntities($this->naturalEntity->getWorld(), MobType::FRIEND);
+			$ar = $this->targets;
+			unset($ar[Player::class]);
+			foreach ($ar as $entityClass => $weight) {
+				$entities += MobTypeWorldMapService::getEntitiesByClass($this->naturalEntity->getWorld(), $entityClass);
+			}
+		} else {
+			$needsDistanceCheck = false;
+			$entities = $this->naturalEntity->getWorld()->getNearbyEntities(
+				$bb,
+				$this->naturalEntity
+			);
+		}
+		$time = microtime(true) - $start;
+
+		$rounded = round($time * 1000, 5);
+		var_dump("time: {$rounded}ms");
 		$weights = [];
 		$instances = [];
 		foreach (
-			$this->naturalEntity->getWorld()->getNearbyEntities(
-				$this->naturalEntity->getBoundingBox()->expandedCopy(
-					$range,
-					$range,
-					$range
-				),
-				$this->naturalEntity
-			) as $entity
+			$entities as $entity
 		) {
 			if ($entity->isClosed() || !$entity->isAlive()) {
+				continue;
+			}
+
+			if ($needsDistanceCheck && !$entity->getBoundingBox()->intersectsWith($bb)) {
 				continue;
 			}
 
@@ -97,6 +126,10 @@ class TargetSelector {
 		}
 
 		return $instances[$entityClass][array_rand($instances[$entityClass] ?? throw new LogicException("Instance not found"))];
+	}
+
+	public function shouldUseFriendlyOptimizedSelection(): bool {
+		return (count($this->groups) === 1 && isset($this->groups[MobType::FRIEND->name]));
 	}
 
 	public function getWeight(Entity $entity): int {
