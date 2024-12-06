@@ -772,17 +772,19 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		if (!$this->movementOptions->isRepulsionEnabled()) {
 			return;
 		}
+		
+		$tick = Server::getInstance()->getTick();
+
+		if ($tick - $this->lastRepulsionTick <= 2) {
+			return;
+		}
+
 		$nextPosition = clone $this->getPosition();
 
 		$diffX = $nextPosition->x - $this->location->x;
 		$diffY = $nextPosition->y - $this->location->y;
 		$diffZ = $nextPosition->z - $this->location->z;
 
-		$tick = Server::getInstance()->getTick();
-
-		if ($tick - $this->lastRepulsionTick <= 1) {
-			return;
-		}
 
 		$repulsion = $this->simplifiedCalculateRepulsion($this->boundingBox->offsetCopy($diffX, $diffY, $diffZ), $this);
 
