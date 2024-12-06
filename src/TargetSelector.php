@@ -65,8 +65,7 @@ class TargetSelector {
 			$range,
 			$range
 		);
-
-		$start = microtime(true);
+		
 		if (MobTypeWorldMapService::isInitialized() && $this->shouldUseFriendlyOptimizedSelection()) {
 			$needsDistanceCheck = true;
 			$entities = MobTypeWorldMapService::getEntities($this->naturalEntity->getWorld(), MobType::FRIEND);
@@ -82,10 +81,6 @@ class TargetSelector {
 				$this->naturalEntity
 			);
 		}
-		$time = microtime(true) - $start;
-
-		$rounded = round($time * 1000, 5);
-		var_dump("time: {$rounded}ms");
 		$weights = [];
 		$instances = [];
 		foreach (
