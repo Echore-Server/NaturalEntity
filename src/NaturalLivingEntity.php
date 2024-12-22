@@ -104,10 +104,6 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		return $this->destroyCycleHooks;
 	}
 
-	public function getMovementOptions(): MovementOptions {
-		return $this->movementOptions;
-	}
-
 	public function getPathProvider(): ?IPathProvider {
 		return $this->pathProvider;
 	}
@@ -827,7 +823,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 								$deltaZ * ($f * 0.2),
 							);
 							$this->queuedRepulsionVector = $kb->multiply(0.5);
-							if ($ent instanceof NaturalLivingEntity && $ent->queuedRepulsionVector === null) {
+							if ($ent instanceof NaturalLivingEntity && $ent->queuedRepulsionVector === null && $ent->getMovementOptions()->isRepulsionEnabled()) {
 								$ent->queuedRepulsionVector = $this->queuedRepulsionVector->multiply(-1);
 							}
 
@@ -841,6 +837,10 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->queuedRepulsionVector = Vector3::zero();
 
 		return $this->queuedRepulsionVector;
+	}
+
+	public function getMovementOptions(): MovementOptions {
+		return $this->movementOptions;
 	}
 
 	public function getFightOptions(): FightOptions {
