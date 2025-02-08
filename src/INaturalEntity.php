@@ -7,6 +7,7 @@ namespace Echore\NaturalEntity;
 use Closure;
 use Echore\NaturalEntity\option\MovementOptions;
 use Echore\NaturalEntity\option\SelectTargetOptions;
+use Echore\Stargazer\ModifiableValue;
 use pocketmine\entity\Entity;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\item\Item;
@@ -77,7 +78,9 @@ interface INaturalEntity {
 
 	public function tryAttackEntity(Entity $entity): bool;
 
-	public function getAdditionalAttackCoolDown(): int;
+	public function getAdditionalAttackCoolDown(): ModifiableValue;
+
+	public function getInitialAdditionalAttackCoolDown(): int;
 
 	public function postAttack(Entity $entity): EntityDamageByEntityEvent;
 

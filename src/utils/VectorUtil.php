@@ -4,42 +4,39 @@ declare(strict_types=1);
 
 namespace Echore\NaturalEntity\utils;
 
+use Echore\FastMath\FFIFastMath;
+use Echore\NaturalEntity\Main;
 use pocketmine\entity\Entity;
 use pocketmine\math\AxisAlignedBB;
 use pocketmine\math\Vector2;
 use pocketmine\math\Vector3;
-use pocketmine\world\World;
+use pocketmine\utils\MathHelper;
 
 class VectorUtil {
 
-	public static function getDirectionHorizontal($yaw): Vector3 {
-		$x = -sin(deg2rad($yaw));
-		$z = cos(deg2rad($yaw));
+	public static function getAngleDirectionVector(Vector3 $from, Vector3 $to): Vector3 {
+		if (Main::isFFIFastMathExists()) {
+			return FFIFastMath::angleDirectionVector($from, $to);
+		} else {
+			$angle = self::getAngle($from, $to);
 
-		$hor = new Vector3($x, 0, $z);
-
-		return $hor->normalize();
-	}
-
-	public static function getDirectionVector(float $yaw, float $pitch): Vector3 {
-		$y = -sin(deg2rad($pitch));
-		$xz = cos(deg2rad($pitch));
-		$x = -$xz * sin(deg2rad($yaw));
-		$z = $xz * cos(deg2rad($yaw));
-
-		return (new Vector3($x, $y, $z))->normalize();
+			return self::getDirectionVector($angle->x, $angle->y);
+		}
 	}
 
 	public static function getAngle(Vector3|Entity $from, Vector3|Entity $to): Vector2 {
 		$from = self::fixPos($from);
 		$to = self::fixPos($to);
+		if (Main::isFFIFastMathExists()) {
+			return FFIFastMath::angle($from, $to);
+		}
 		$horizontal = sqrt(($to->x - $from->x) ** 2 + ($to->z - $from->z) ** 2);
 		$vertical = $to->y - $from->y;
-		$pitch = -atan2($vertical, $horizontal) / M_PI * 180; //negative is up, positive is down
+		$pitch = -atan2($vertical, $horizontal) * MathHelper::RAD_DEG; //negative is up, positive is down
 
 		$xDist = $to->x - $from->x;
 		$zDist = $to->z - $from->z;
-		$yaw = atan2($zDist, $xDist) / M_PI * 180 - 90;
+		$yaw = atan2($zDist, $xDist) * MathHelper::RAD_DEG - 90;
 
 		if ($yaw < 0) {
 			$yaw += 360.0;
@@ -52,47 +49,61 @@ class VectorUtil {
 		return ($pos instanceof Entity) ? $pos->getPosition()->asVector3() : $pos;
 	}
 
+	public static function getDirectionVector(float $yaw, float $pitch): Vector3 {
+		if (Main::isFFIFastMathExists()) {
+			return FFIFastMath::directionVector($yaw, $pitch);
+		}
+		$pitchRad = MathHelper::DEG_RAD * $pitch;
+		$yawRad = MathHelper::DEG_RAD * $yaw;
+		$y = -MathHelper::sin($pitchRad);
+		$xz = MathHelper::cos($pitchRad);
+		$x = -$xz * MathHelper::sin($yawRad);
+		$z = $xz * MathHelper::cos($yawRad);
+
+		return (new Vector3($x, $y, $z))->normalize();
+	}
+
+	public static function getAngleDirectionHorizontal(Vector3 $from, Vector3 $to): Vector3 {
+		if (Main::isFFIFastMathExists()) {
+			return FFIFastMath::angleDirectionHorizontal($from, $to);
+		} else {
+			$angle = self::getAngleHorizontal($from, $to);
+
+			return self::getDirectionHorizontal($angle->x);
+		}
+	}
+
+	public static function getAngleHorizontal(Vector3 $from, Vector3 $to): Vector2 {
+		if (Main::isFFIFastMathExists()) {
+			return FFIFastMath::angleHorizontal($from, $to);
+		}
+
+		$xDist = $to->x - $from->x;
+		$zDist = $to->z - $from->z;
+		$yaw = atan2($zDist, $xDist) / M_PI * 180 - 90;
+
+		if ($yaw < 0) {
+			$yaw += 360.0;
+		}
+
+		return new Vector2($yaw, 0);
+	}
+
+	public static function getDirectionHorizontal(float $yaw): Vector3 {
+		// ffi overhead
+		$x = -MathHelper::sin(MathHelper::DEG_RAD * $yaw);
+		$z = MathHelper::cos(MathHelper::DEG_RAD * $yaw);
+
+		$hor = new Vector3($x, 0, $z);
+
+		return $hor->normalize();
+	}
+
 	public static function distanceToAABB(Vector3 $pos, AxisAlignedBB $aabb): float {
 		$distX = max($aabb->minX - $pos->x, 0, $pos->x - $aabb->maxX);
 		$distY = max($aabb->minY - $pos->y, 0, $pos->y - $aabb->maxY);
 		$distZ = max($aabb->minZ - $pos->z, 0, $pos->z - $aabb->maxZ);
 
 		return sqrt(pow($distX, 2) + pow($distY, 2) + pow($distZ, 2));
-	}
-
-	public function getBlocks(World $world, AxisAlignedBB $bb, bool $targetFirst = false): array {
-		$minX = (int) floor($bb->minX - 1);
-		$minY = (int) floor($bb->minY - 1);
-		$minZ = (int) floor($bb->minZ - 1);
-		$maxX = (int) floor($bb->maxX + 1);
-		$maxY = (int) floor($bb->maxY + 1);
-		$maxZ = (int) floor($bb->maxZ + 1);
-
-		$collides = [];
-
-		if ($targetFirst) {
-			for ($z = $minZ; $z <= $maxZ; ++$z) {
-				for ($x = $minX; $x <= $maxX; ++$x) {
-					for ($y = $minY; $y <= $maxY; ++$y) {
-						$block = $world->getBlockAt($x, $y, $z);
-
-						return [$block];
-					}
-				}
-			}
-		} else {
-			for ($z = $minZ; $z <= $maxZ; ++$z) {
-				for ($x = $minX; $x <= $maxX; ++$x) {
-					for ($y = $minY; $y <= $maxY; ++$y) {
-						$block = $world->getBlockAt($x, $y, $z);
-						if ($block->collidesWithBB($bb)) {
-							$collides[] = $block;
-						}
-					}
-				}
-			}
-		}
-
-		return $collides;
 	}
 }

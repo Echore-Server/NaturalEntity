@@ -8,8 +8,10 @@ use Echore\NaturalEntity\option\FightOptions;
 use Echore\NaturalEntity\option\MovementOptions;
 use Echore\NaturalEntity\option\SelectTargetOptions;
 use Echore\NaturalEntity\style\IFightingEntity;
+use Echore\NaturalEntity\utils\NaturalEntityTimings;
 use Echore\NaturalEntity\utils\VectorUtil;
-use Echore\Optimizer\NetworkPacketUtils;
+use Echore\Stargazer\ModifiableValue;
+use Echore\Stargazer\ModifierSet;
 use OutOfRangeException;
 use pocketmine\block\Block;
 use pocketmine\block\Cobweb;
@@ -20,11 +22,8 @@ use pocketmine\entity\animation\ArmSwingAnimation;
 use pocketmine\entity\Attribute;
 use pocketmine\entity\Entity;
 use pocketmine\entity\Living;
-use pocketmine\entity\Location;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityDamageEvent;
-use pocketmine\inventory\CallbackInventoryListener;
-use pocketmine\inventory\Inventory;
 use pocketmine\item\Item;
 use pocketmine\item\VanillaItems;
 use pocketmine\math\AxisAlignedBB;
@@ -32,7 +31,6 @@ use pocketmine\math\Vector2;
 use pocketmine\math\Vector3;
 use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\network\mcpe\convert\TypeConverter;
-use pocketmine\network\mcpe\EntityEventBroadcaster;
 use pocketmine\network\mcpe\NetworkBroadcastUtils;
 use pocketmine\network\mcpe\protocol\MobEquipmentPacket;
 use pocketmine\network\mcpe\protocol\MoveActorAbsolutePacket;
@@ -41,7 +39,6 @@ use pocketmine\network\mcpe\protocol\types\inventory\ContainerIds;
 use pocketmine\network\mcpe\protocol\types\inventory\ItemStackWrapper;
 use pocketmine\player\Player;
 use pocketmine\Server;
-use pocketmine\timings\Timings;
 use pocketmine\utils\ObjectSet;
 use pocketmine\world\format\Chunk;
 
@@ -97,6 +94,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 	private ?Vector3 $queuedRepulsionVector;
 
+	private ModifiableValue $additionalAttackCoolDown;
+
 	/**
 	 * @return ObjectSet
 	 */
@@ -139,7 +138,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$position = $this->getPosition()->add(0, 0.5, 0);
 
 		if ($this->pathProvider?->isReachable($position, $to) ?? true) {
-			$horizontal = VectorUtil::getDirectionHorizontal(VectorUtil::getAngle($position, $to)->x);
+			$horizontal = VectorUtil::getAngleDirectionHorizontal($position, $to);
 		} else {
 			$horizontal = null;
 			foreach ([$position] + $position->sidesArray() as $target) {
@@ -147,7 +146,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 					if ($this->pathProvider->isAvailable($target, $targetTo)) {
 						$next = $this->pathProvider->getNextPosition($target->floor(), $targetTo->floor());
 
-						$horizontal = VectorUtil::getDirectionHorizontal(VectorUtil::getAngle($position, $next->add(0.5, 0.0, 0.5))->x);
+						$horizontal = VectorUtil::getAngleDirectionHorizontal($position, $next->add(0.5, 0.0, 0.5));
 						break 2;
 					}
 				}
@@ -187,22 +186,23 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			$speed *= $this->getBlockSpeedModifier($this->getWorld()->getBlock($this->getPosition()));
 		}
 
-		$vector = new Vector3($direction->x * $speed, 0, $direction->y * $speed);
+		$dx = $direction->x * $speed;
+		$dz = $direction->y * $speed;
 
-		if ($vector->x < 0 && $this->motion->x > $vector->x) {
-			$this->addMotion($vector->x, 0, 0);
+		if ($dx < 0 && $this->motion->x > $dx) {
+			$this->motion->x += $dx;
 		}
 
-		if ($vector->x > 0 && $this->motion->x < $vector->x) {
-			$this->addMotion($vector->x, 0, 0);
+		if ($dx > 0 && $this->motion->x < $dx) {
+			$this->motion->x += $dx;
 		}
 
-		if ($vector->z < 0 && $this->motion->z > $vector->z) {
-			$this->addMotion(0, 0, $vector->z);
+		if ($dz < 0 && $this->motion->z > $dz) {
+			$this->motion->z += $dz;
 		}
 
-		if ($vector->z > 0 && $this->motion->z < $vector->z) {
-			$this->addMotion(0, 0, $vector->z);
+		if ($dz > 0 && $this->motion->z < $dz) {
+			$this->motion->z += $dz;
 		}
 	}
 
@@ -267,13 +267,13 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			return false;
 		}
 
-		$dist = $this->getEyePos()->distanceSquared($entity->getEyePos());
-
-		if ($dist > $this->getAttackRange() ** 2) {
+		if ($this->postAttackCoolDown > 0) {
 			return false;
 		}
 
-		if ($this->postAttackCoolDown > 0) {
+		$dist = $this->getEyePos()->distanceSquared($entity->getEyePos());
+
+		if ($dist > $this->getAttackRange() ** 2) {
 			return false;
 		}
 
@@ -285,7 +285,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 			$this->interesting += 25;
 		}
 
-		$this->postAttackCoolDown = $source->getAttackCooldown() + $this->getAdditionalAttackCoolDown();
+		$this->postAttackCoolDown = $source->getAttackCooldown() + $this->getAdditionalAttackCoolDown()->getFinalFloored();
 
 		return true;
 	}
@@ -303,7 +303,7 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	}
 
 	public function broadcastAnimation(Animation $animation, ?array $targets = null): void {
-		NetworkPacketUtils::broadcast($targets ?? $this->getViewers(), $animation->encode());
+		NetworkBroadcastUtils::broadcastPackets($targets ?? $this->getViewers(), $animation->encode(), false);
 	}
 
 	public function postAttack(Entity $entity): EntityDamageByEntityEvent {
@@ -401,6 +401,10 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		return true;
 	}
 
+	public function getAdditionalAttackCoolDown(): ModifiableValue {
+		return $this->additionalAttackCoolDown;
+	}
+
 	/**
 	 * @param EntityDamageEvent|null $type
 	 */
@@ -464,10 +468,6 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		return $this->disposeHooks;
 	}
 
-	public function setRotation(float $yaw, float $pitch): void {
-		parent::setRotation($yaw, $pitch);
-	}
-
 	public function onUpdate(int $currentTick): bool {
 		$tickDiff = $currentTick - $this->lastUpdate;
 		$this->broadcastMovementBuffer -= $tickDiff;
@@ -499,136 +499,21 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		}
 	}
 
-	protected function move(float $dx, float $dy, float $dz): void {
-		$this->blocksAround = null;
-
-		Timings::$entityMove->startTiming();
-		Timings::$entityMoveCollision->startTiming();
-
-		$wantedX = $dx;
-		$wantedY = $dy;
-		$wantedZ = $dz;
-
-		if ($this->keepMovement) {
-			$this->boundingBox->offset($dx, $dy, $dz);
-		} else {
-			$this->ySize *= self::STEP_CLIP_MULTIPLIER;
-
-			$moveBB = clone $this->boundingBox;
-
-			assert(abs($dx) <= 20 && abs($dy) <= 20 && abs($dz) <= 20, "Movement distance is excessive: dx=$dx, dy=$dy, dz=$dz");
-
-			$list = $this->getWorld()->getCollisionBoxes($this, $moveBB->addCoord($dx, $dy, $dz), false);
-
-			foreach ($list as $bb) {
-				$dy = $bb->calculateYOffset($moveBB, $dy);
-			}
-
-			$moveBB->offset(0, $dy, 0);
-
-			$fallingFlag = ($this->onGround || ($dy != $wantedY && $wantedY < 0));
-
-			foreach ($list as $bb) {
-				$dx = $bb->calculateXOffset($moveBB, $dx);
-			}
-
-			$moveBB->offset($dx, 0, 0);
-
-			foreach ($list as $bb) {
-				$dz = $bb->calculateZOffset($moveBB, $dz);
-			}
-
-			$moveBB->offset(0, 0, $dz);
-
-			if ($this->stepHeight > 0 && $fallingFlag && ($wantedX != $dx || $wantedZ != $dz)) {
-				$cx = $dx;
-				$cy = $dy;
-				$cz = $dz;
-				$dx = $wantedX;
-				$dy = $this->stepHeight;
-				$dz = $wantedZ;
-
-				$stepBB = clone $this->boundingBox;
-
-				$list = $this->getWorld()->getCollisionBoxes($this, $stepBB->addCoord($dx, $dy, $dz), false);
-				foreach ($list as $bb) {
-					$dy = $bb->calculateYOffset($stepBB, $dy);
-				}
-
-				$stepBB->offset(0, $dy, 0);
-
-				foreach ($list as $bb) {
-					$dx = $bb->calculateXOffset($stepBB, $dx);
-				}
-
-				$stepBB->offset($dx, 0, 0);
-
-				foreach ($list as $bb) {
-					$dz = $bb->calculateZOffset($stepBB, $dz);
-				}
-
-				$stepBB->offset(0, 0, $dz);
-
-				$reverseDY = -$dy;
-				foreach ($list as $bb) {
-					$reverseDY = $bb->calculateYOffset($stepBB, $reverseDY);
-				}
-				$dy += $reverseDY;
-				$stepBB->offset(0, $reverseDY, 0);
-
-				if (($cx ** 2 + $cz ** 2) >= ($dx ** 2 + $dz ** 2)) {
-					$dx = $cx;
-					$dy = $cy;
-					$dz = $cz;
-				} else {
-					$moveBB = $stepBB;
-					$this->ySize += $dy;
-				}
-			}
-
-			$this->boundingBox = $moveBB;
-		}
-		Timings::$entityMoveCollision->stopTiming();
-
-		$this->location = new Location(
-			($this->boundingBox->minX + $this->boundingBox->maxX) / 2,
-			$this->boundingBox->minY - $this->ySize,
-			($this->boundingBox->minZ + $this->boundingBox->maxZ) / 2,
-			$this->location->world,
-			$this->location->yaw,
-			$this->location->pitch
-		);
-
-		$this->getWorld()->onEntityMoved($this);
-		$this->checkGroundState($wantedX, $wantedY, $wantedZ, $dx, $dy, $dz);
-		$postFallVerticalVelocity = $this->updateFallState($dy, $this->onGround);
-
-		$this->motion = $this->motion->withComponents(
-			$wantedX != $dx ? 0 : null,
-			$postFallVerticalVelocity ?? ($wantedY != $dy ? 0 : null),
-			$wantedZ != $dz ? 0 : null
-		);
-
-		//TODO: vehicle collision events (first we need to spawn them!)
-
-		Timings::$entityMove->stopTiming();
-	}
-
 	protected function broadcastMotion(): void {
-		NetworkPacketUtils::broadcast($this->hasSpawned, [SetActorMotionPacket::create($this->id, $this->getMotion(), tick: 0)]);
+		NetworkBroadcastUtils::broadcastPackets($this->hasSpawned, [SetActorMotionPacket::create($this->id, $this->getMotion(), tick: 0)], false);
 	}
 
 	protected function broadcastMovement(bool $teleport = false): void {
 		if (!$teleport) {
 			if ($this->broadcastMovementBuffer <= 0) {
 				$this->broadcastMovementBuffer = 2;
-			} else {
+			} elseif ($this->motion->x <= 0.5 && $this->motion->y <= 0.5 && $this->motion->z <= 0.5) {
 				return;
 			}
 		}
 
 		// crazy hack for rotation bug
-		NetworkPacketUtils::broadcast($this->hasSpawned, [
+		NetworkBroadcastUtils::broadcastPackets($this->hasSpawned, [
 			MoveActorAbsolutePacket::create(
 				$this->id,
 				$this->getOffsetPosition($this->location)->add(
@@ -648,12 +533,11 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 				($this->onGround ? MoveActorAbsolutePacket::FLAG_GROUND : 0)
 				)
 			)
-		]);
+		], false);
 	}
 
 	protected function initEntity(CompoundTag $nbt): void {
 		parent::initEntity($nbt);
-		$this->optimizeArmorListener();
 		$this->disposeHooks = new ObjectSet();
 
 		$this->movementOptions = new MovementOptions();
@@ -675,33 +559,9 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 		$this->heldItemInOffhand = VanillaItems::AIR();
 		// override parent properties
 		$this->stepHeight = 1.05;
+		$this->additionalAttackCoolDown = new ModifiableValue($this->getInitialAdditionalAttackCoolDown(), ModifierSet::MODE_ADDITION);
 
 		$this->initStyle();
-	}
-
-	private function optimizeArmorListener(): void {
-		$this->armorInventory->getListeners()->clear();
-
-		$this->armorInventory->getListeners()->add(
-			new CallbackInventoryListener(
-				function(Inventory $inventory, int $slot, Item $oldItem): void {
-					$newItem = $inventory->getItem($slot);
-
-					if (!$newItem->equals($oldItem, checkCompound: false)) {
-						NetworkBroadcastUtils::broadcastEntityEvent(
-							$this->getViewers(),
-							fn(EntityEventBroadcaster $broadcaster, array $recipients) => $broadcaster->onMobArmorChange($recipients, $this)
-						);
-					}
-				},
-				function(Inventory $inventory, array $oldContents): void {
-					NetworkBroadcastUtils::broadcastEntityEvent(
-						$this->getViewers(),
-						fn(EntityEventBroadcaster $broadcaster, array $recipients) => $broadcaster->onMobArmorChange($recipients, $this)
-					);
-				}
-			)
-		);
 	}
 
 	abstract protected function getInitialTargetSelector(): TargetSelector;
@@ -721,8 +581,11 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 		$this->selectTargetCycleTick += $tickDiff;
 
+		NaturalEntityTimings::$repulsion->startTiming();
 		$this->processEntityRepulsion();
+		NaturalEntityTimings::$repulsion->stopTiming();
 
+		NaturalEntityTimings::$targetSelecting->startTiming();
 		if (
 			$this->selectTargetOptions->isEnabled() &&
 			$this->getInstanceTarget() === null &&
@@ -736,14 +599,17 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 
 			$this->selectTargetCycleTick -= $this->selectTargetOptions->getIntervalTick();
 		}
+		NaturalEntityTimings::$targetSelecting->stopTiming();
 
 		if ($this->getFightOptions()->isEnabled()) {
+			NaturalEntityTimings::$fightUpdate->startTiming();
 			$this->onFightUpdate($tickDiff);
+			NaturalEntityTimings::$fightUpdate->stopTiming();
 		}
 
 		if ($this->heldItemChanged) {
 			$this->heldItemChanged = false;
-			NetworkPacketUtils::broadcast(
+			NetworkBroadcastUtils::broadcastPackets(
 				$this->getViewers(),
 				[
 					MobEquipmentPacket::create(
@@ -760,7 +626,8 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 						0,
 						ContainerIds::OFFHAND
 					),
-				]
+				],
+				false
 			);
 		}
 
@@ -804,10 +671,10 @@ abstract class NaturalLivingEntity extends Living implements INaturalEntity, IFi
 	}
 
 	protected function optimizedCalculateRepulsion(AxisAlignedBB $bb, Entity $entity): Vector3 {
-		$minX = ((int) floor($bb->minX - 1)) >> Chunk::COORD_BIT_SIZE;
-		$maxX = ((int) ceil($bb->maxX + 1)) >> Chunk::COORD_BIT_SIZE;
-		$minZ = ((int) floor($bb->minZ - 1)) >> Chunk::COORD_BIT_SIZE;
-		$maxZ = ((int) ceil($bb->maxZ + 1)) >> Chunk::COORD_BIT_SIZE;
+		$minX = ((int) floor($bb->minX + 0.001)) >> Chunk::COORD_BIT_SIZE;
+		$maxX = ((int) ceil($bb->maxX + 0.001)) >> Chunk::COORD_BIT_SIZE;
+		$minZ = ((int) floor($bb->minZ - 0.001)) >> Chunk::COORD_BIT_SIZE;
+		$maxZ = ((int) ceil($bb->maxZ + 0.001)) >> Chunk::COORD_BIT_SIZE;
 
 		for ($x = $minX; $x <= $maxX; ++$x) {
 			for ($z = $minZ; $z <= $maxZ; ++$z) {
